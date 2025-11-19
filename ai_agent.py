@@ -1,0 +1,311 @@
+"""
+Main AI Agent that orchestrates STT, LLM, and TTS
+Simple voice recognition → LLM → Text-to-Speech pipeline
+"""
+import os
+from stt_module import STTModule
+from tts_module import TTSModule
+from llm_module import LLMModule
+from voice_recorder import VoiceRecorder
+
+
+class AIAgent:
+    def __init__(self, language='hindi', llm_model='phi3:mini', auto_detect_language=False):
+        """
+        Initialize AI Agent
+        
+        Args:
+            language: 'hindi', 'english', 'urdu', or 'telugu' (default language)
+            llm_model: Ollama model name (default: 'phi3:mini')
+            auto_detect_language: If True, automatically detect language from voice input (default: False)
+        """
+        self.language = language.lower()
+        self.auto_detect_language = auto_detect_language
+        
+        if self.auto_detect_language:
+            print("Initializing AI Agent with automatic language detection")
+        else:
+            print(f"Initializing AI Agent with language: {self.language.upper()}")
+        
+        # Initialize modules
+        print("Loading STT module with Whisper...")
+        self.stt = STTModule(language=self.language, auto_detect=auto_detect_language, use_whisper=True)
+        
+        print("Loading TTS module...")
+        self.tts = TTSModule(language=self.language)
+        
+        print("Loading LLM module...")
+        self.llm = LLMModule(model_name=llm_model, use_cpu=True)
+        
+        print("Initializing voice recorder...")
+        self.recorder = VoiceRecorder()
+        
+        # Create temp directory for audio files
+        self.temp_dir = "temp_audio"
+        os.makedirs(self.temp_dir, exist_ok=True)
+        
+        # System prompts for intelligent responses
+        self.system_prompts = {
+            'hindi': 'आप एक बुद्धिमान AI सहायक हैं। उपयोगकर्ता के प्रश्नों का उचित उत्तर दें।',
+            'english': 'You are an intelligent AI assistant. Provide helpful and appropriate responses to user questions.',
+            'urdu': 'آپ ایک ذہین AI معاون ہیں۔ صارف کے سوالات کا مناسب جواب دیں۔',
+            'telugu': 'మీరు ఒక తెలివైన AI సహాయకుడు. వినియోగదారు ప్రశ్నలకు సముచితమైన సమాధానాలు ఇవ్వండి.'
+        }
+        
+        print("AI Agent initialized successfully!")
+    
+    def process_voice_input(self, audio_path=None):
+        """
+        Process voice input: Record → STT → LLM → TTS → Play
+        
+        Args:
+            audio_path: Path to existing audio file (optional)
+        
+        Returns:
+            Dictionary with transcription, response, and audio path
+        """
+        try:
+            # Step 1: Record or use provided audio
+            if audio_path is None:
+                input_audio_path = os.path.join(self.temp_dir, "input.wav")
+                print("\nRecording voice input... (speak now, stops after 5 seconds of silence)")
+                self.recorder.record_until_silence(output_path=input_audio_path)
+            else:
+                input_audio_path = audio_path
+                print(f"Using provided audio file: {audio_path}")
+            
+            # Step 2: Speech-to-Text (with automatic language detection if enabled)
+            print("Converting speech to text...")
+            transcription = self.stt.transcribe(input_audio_path)
+            print(f"Transcribed: {transcription}")
+            
+            if not transcription or transcription.strip() == "":
+                return {
+                    'error': 'No speech detected in audio',
+                    'transcription': '',
+                    'response': ''
+                }
+            
+            # Update language if auto-detection changed it
+            if self.auto_detect_language and hasattr(self.stt, 'language') and self.stt.language != self.language:
+                self.language = self.stt.language
+                self.tts.set_language(self.language)
+                print(f"Language automatically detected and set to: {self.language.upper()}")
+            
+            # Step 3: LLM Processing
+            print("Processing with LLM...")
+            system_prompt = self.system_prompts.get(self.language, self.system_prompts['english'])
+            response = self.llm.generate(
+                prompt=transcription,
+                system_prompt=system_prompt,
+                max_tokens=128,
+                temperature=0.6
+            )
+            print(f"LLM Response: {response}")
+            
+            # Step 4: Text-to-Speech and Play
+            print("Converting response to speech and playing...")
+            self.tts.speak(response)
+            
+            return {
+                'transcription': transcription,
+                'response': response,
+                'input_audio_path': input_audio_path
+            }
+        
+        except Exception as e:
+            error_msg = f"Error in process_voice_input: {e}"
+            print(f"\n[ERROR] {error_msg}")
+            return {
+                'error': error_msg,
+                'transcription': '',
+                'response': ''
+            }
+    
+    def set_language(self, language):
+        """
+        Change language for STT and TTS
+        
+        Args:
+            language: 'hindi', 'english', or 'urdu'
+        """
+        if language.lower() != self.language:
+            self.language = language.lower()
+            print(f"Switching language to: {self.language}")
+            self.stt.set_language(self.language)
+            self.tts.set_language(self.language)
+    
+    def interactive_mode(self):
+        """Run agent in interactive mode"""
+        print("\n" + "="*60)
+        print("AI Agent - Interactive Mode")
+        print("="*60)
+        if self.auto_detect_language:
+            print("Mode: Automatic Language Detection (Hindi/English/Urdu/Telugu)")
+        else:
+            print(f"Current Language: {self.language.upper()}")
+        print("\nCommands:")
+        print("  - Press ENTER or type 'mic' to record from microphone")
+        print("  - Type file path to process an audio file (e.g., 'audio.wav')")
+        print("  - Language Selection:")
+        print("    * 'hindi' or 'lang:hindi' - Switch to Hindi")
+        print("    * 'english' or 'lang:english' - Switch to English")
+        print("    * 'urdu' or 'lang:urdu' - Switch to Urdu")
+        print("    * 'telugu' or 'lang:telugu' - Switch to Telugu")
+        print("    * 'auto' or 'autodetect' - Enable automatic language detection")
+        print("    * 'manual' - Disable auto-detection, use selected language")
+        print("  - Type 'voices' to list all available TTS voices")
+        print("  - Type 'quit' or 'exit' to stop")
+        print("="*60 + "\n")
+        
+        while True:
+            try:
+                user_input = input("\nEnter command (ENTER/mic for microphone, file path for audio file): ").strip()
+                
+                if user_input.lower() in ['quit', 'exit', 'q']:
+                    print("Goodbye!")
+                    break
+                
+                # Handle language change
+                user_input_lower = user_input.lower().strip()
+                
+                # Direct language commands (e.g., "hindi", "english")
+                if user_input_lower in ['hindi', 'english', 'urdu', 'telugu']:
+                    self.auto_detect_language = False
+                    self.set_language(user_input_lower)
+                    print(f"Language set to: {user_input_lower.upper()}")
+                    print("Auto-detection disabled. Using selected language.")
+                    continue
+                
+                # Language commands with prefix (e.g., "lang:hindi")
+                if user_input_lower.startswith('lang:'):
+                    new_lang = user_input_lower.split(':')[1].strip()
+                    if new_lang in ['hindi', 'english', 'urdu', 'telugu']:
+                        self.auto_detect_language = False
+                        self.set_language(new_lang)
+                        print(f"Language set to: {new_lang.upper()}")
+                        print("Auto-detection disabled. Using selected language.")
+                    else:
+                        print("Invalid language. Use: hindi, english, urdu, or telugu")
+                    continue
+                
+                # Toggle auto-detection
+                if user_input_lower in ['auto', 'autodetect', 'auto-detect']:
+                    self.auto_detect_language = True
+                    self.stt.auto_detect = True
+                    print("Automatic language detection ENABLED")
+                    continue
+                
+                if user_input_lower in ['manual', 'disable-auto']:
+                    self.auto_detect_language = False
+                    self.stt.auto_detect = False
+                    print(f"Automatic language detection DISABLED")
+                    print(f"Using language: {self.language.upper()}")
+                    continue
+                
+                # List available voices
+                if user_input_lower in ['voices', 'list-voices', 'voice']:
+                    self.tts.list_voices()
+                    continue
+                
+                # Handle audio file input
+                # Check if input is a file path (starts with 'file:' or is a valid file path)
+                audio_file_path = None
+                
+                if user_input.lower().startswith('file:'):
+                    # Extract path after 'file:' prefix
+                    audio_file_path = user_input[5:].strip()
+                elif user_input.lower() not in ['', 'mic', 'microphone']:
+                    # Check if input looks like a file path (has extension or is a path)
+                    audio_extensions = ['.wav', '.mp3', '.m4a', '.flac', '.ogg', '.wma']
+                    if any(user_input.lower().endswith(ext) for ext in audio_extensions) or os.sep in user_input or ':' in user_input:
+                        audio_file_path = user_input
+                
+                if audio_file_path:
+                    # Try to find the file
+                    found_path = None
+                    
+                    # Check if it's an absolute path
+                    if os.path.isabs(audio_file_path):
+                        if os.path.exists(audio_file_path):
+                            found_path = audio_file_path
+                    else:
+                        # Check relative to current directory
+                        if os.path.exists(audio_file_path):
+                            found_path = os.path.abspath(audio_file_path)
+                        # Check relative to project directory
+                        elif os.path.exists(os.path.join(os.getcwd(), audio_file_path)):
+                            found_path = os.path.abspath(os.path.join(os.getcwd(), audio_file_path))
+                        # Check in temp_audio directory
+                        elif os.path.exists(os.path.join(self.temp_dir, audio_file_path)):
+                            found_path = os.path.abspath(os.path.join(self.temp_dir, audio_file_path))
+                    
+                    if found_path:
+                        print(f"Processing audio file: {found_path}")
+                        result = self.process_voice_input(audio_path=found_path)
+                    else:
+                        print(f"Error: File not found: {audio_file_path}")
+                        print(f"  Searched in: {os.getcwd()}")
+                        print(f"  Please check the file path and try again.")
+                        continue
+                
+                # Handle microphone input (default)
+                elif user_input.lower() in ['', 'mic', 'microphone']:
+                    result = self.process_voice_input()
+                
+                else:
+                    print("Invalid command. Use ENTER/mic for microphone or provide a file path for audio file.")
+                    continue
+                
+                if 'error' in result:
+                    print(f"\n[ERROR] {result['error']}")
+                else:
+                    print(f"\n[SUCCESS]")
+                    print(f"You said: {result['transcription']}")
+                    print(f"AI replied: {result['response']}")
+            
+            except KeyboardInterrupt:
+                print("\n\nInterrupted by user. Goodbye!")
+                break
+            except Exception as e:
+                print(f"\n[ERROR] {e}")
+        
+        # Cleanup
+        self.cleanup()
+    
+    def cleanup(self):
+        """Clean up resources"""
+        print("\nCleaning up resources...")
+        self.recorder.cleanup()
+        print("Cleanup complete!")
+
+
+if __name__ == "__main__":
+    # Initialize agent
+    import ollama
+    try:
+        models = ollama.list()
+        model_names = []
+        if isinstance(models, dict) and 'models' in models:
+            model_names = [model.get('name', '') for model in models['models']]
+        elif isinstance(models, list):
+            model_names = [model.get('name', '') for model in models]
+        
+        # Prefer phi3:mini, then tinyllama, then phi3
+        if any('phi3:mini' in name for name in model_names):
+            default_model = 'phi3:mini'
+        elif any('tinyllama' in name for name in model_names):
+            default_model = 'tinyllama'
+        elif any('phi3' in name for name in model_names):
+            default_model = 'phi3'
+        else:
+            default_model = 'phi3:mini'
+    except:
+        default_model = 'phi3:mini'
+    
+    print(f"Using model: {default_model}")
+    # Start with manual language selection (auto-detect disabled by default)
+    agent = AIAgent(language='hindi', llm_model=default_model, auto_detect_language=False)
+    
+    # Run in interactive mode
+    agent.interactive_mode()
