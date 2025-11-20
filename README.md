@@ -4,10 +4,11 @@ A simple offline AI agent that listens to your voice, understands it, and respon
 
 ## What It Does
 
-1. 🎤 **Listens** - Records your voice from microphone or audio file
+1. 🎤 **Listens** - Records your voice from microphone or audio file (with noise reduction)
 2. 🔍 **Understands** - Converts speech to text (supports Hindi, English, Urdu, Telugu)
 3. 🧠 **Thinks** - Uses local AI (Ollama) to generate intelligent responses
-4. 🔊 **Speaks** - Converts response back to speech in your language
+4. 🔊 **Speaks** - Converts response back to speech in your language (Piper TTS for Hindi/Telugu)
+5. 💾 **Saves** - Automatically saves transcription and response to text files
 
 **100% OFFLINE** - No internet needed after first setup!
 
@@ -29,9 +30,16 @@ pipwin install pyaudio
 
 Download from: https://ollama.ai/
 
-Then pull a model:
+Then pull a model (default is phi3 - fast and lightweight):
 ```bash
-ollama pull phi3:mini
+ollama pull phi3
+```
+
+Other model options:
+```bash
+ollama pull phi3:mini      # Smaller, faster
+ollama pull llama3.1:8b    # Larger, more capable
+ollama pull llama3.1:70b   # Very large (requires more RAM/VRAM)
 ```
 
 ### 3. Start Ollama
@@ -91,34 +99,54 @@ LLM Response: నమస్కారం! మీరు ఎలా ఉన్నా�
 ## Project Files
 
 - `ai_agent.py` - Main program (run this)
-- `stt_module.py` - Speech-to-Text (Whisper)
-- `tts_module.py` - Text-to-Speech (system voices)
+- `stt_module.py` - Speech-to-Text (faster-whisper)
+- `tts_module.py` - Text-to-Speech (Piper TTS + system voices)
 - `llm_module.py` - AI brain (Ollama)
-- `voice_recorder.py` - Audio recording
+- `voice_recorder.py` - Audio recording with noise reduction
+- `noise_reduction.py` - WebRTC noise cancellation
 - `language_detector.py` - Auto language detection
 
 ## Models Used
 
 ### Speech-to-Text
-- **Whisper** (primary) - High accuracy, offline
-- **Wav2Vec2** (fallback) - Backup option
+- **faster-whisper** (large-v3) - High accuracy, fast, 100% offline
 
 ### Text-to-Speech
-- **pyttsx3** - Uses system voices (offline)
+- **Piper TTS** - Neural TTS for Hindi and Telugu (best quality)
+- **pyttsx3** - System voices (fallback for all languages)
 - **PowerShell TTS** - Windows backup (offline)
 
 ### AI Model
-- **Ollama Phi3** - Local AI, no internet needed
+- **Ollama** - Local AI, no internet needed
+  - Default: `phi3` (fast, lightweight)
+  - Options: `phi3:mini`, `llama3.1:8b`, `llama3.1:70b`
+
+### Noise Reduction
+- **WebRTC VAD** - Voice Activity Detection and noise suppression
+- Automatically applied to all recordings for clearer audio
 
 **All models are public - No tokens or API keys required!**
 
 ## First Run
 
-On first run, the system will download models (~500MB-1GB):
-- Whisper model (~150MB)
-- Wav2Vec2 models (~300MB each)
+On first run, the system will download models:
+- **faster-whisper large-v3** (~1.5GB) - High accuracy speech recognition
+- **Language detector models** (~300MB) - Only if auto-detection is enabled
 
 **Requires internet only for first download. After that, works 100% offline!**
+
+## Features
+
+### Automatic Text Saving
+All transcriptions and AI responses are automatically saved to text files:
+- Saved in `output_text/` folder
+- Named after the audio file (e.g., `audio.wav` → `audio.txt`)
+- Includes transcription, AI response, language, and timestamp
+
+### Noise Reduction
+- Automatic noise cancellation using WebRTC
+- Removes background noise and silence
+- Improves transcription accuracy
 
 ## Troubleshooting
 
@@ -126,12 +154,17 @@ On first run, the system will download models (~500MB-1GB):
 - Check system volume
 - Install language pack in Windows (Settings > Language)
 - Type `voices` to see available voices
-- See `TELUGU_TTS_SETUP.md` for Telugu setup help
+- For Hindi/Telugu: Ensure Piper TTS models are in `piper/` folder
+  - Hindi: `hi_IN-*.onnx` and `hi_IN-*.onnx.json`
+  - Telugu: `te_IN-maya-medium.onnx` and `te_IN-maya-medium.onnx.json`
+- See `DOWNLOAD_HINDI_MODEL.md` for Hindi TTS setup
 
 ### Ollama Not Working
 - Make sure Ollama is running: `ollama serve`
 - Check model is installed: `ollama list`
-- Pull model if missing: `ollama pull phi3:mini`
+- Pull default model: `ollama pull phi3`
+- For other models: `ollama pull phi3:mini` or `ollama pull llama3.1:8b`
+- If you get "model not found" error, verify the model name with: `ollama list`
 
 ### Recording Issues
 - Check microphone permissions

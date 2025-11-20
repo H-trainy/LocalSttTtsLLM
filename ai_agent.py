@@ -3,6 +3,7 @@ Main AI Agent that orchestrates STT, LLM, and TTS
 Simple voice recognition → LLM → Text-to-Speech pipeline
 """
 import os
+from datetime import datetime
 from stt_module import STTModule
 from tts_module import TTSModule
 from llm_module import LLMModule
@@ -10,13 +11,14 @@ from voice_recorder import VoiceRecorder
 
 
 class AIAgent:
-    def __init__(self, language='hindi', llm_model='phi3:mini', auto_detect_language=False):
+    def __init__(self, language='hindi', llm_model='phi3', auto_detect_language=False):
         """
         Initialize AI Agent
         
         Args:
             language: 'hindi', 'english', 'urdu', or 'telugu' (default language)
-            llm_model: Ollama model name (default: 'phi3:mini')
+            llm_model: Ollama model name (default: 'phi3' - fast, no large downloads)
+                       Other options: 'phi3:mini', 'llama3.1:8b', 'tinyllama'
             auto_detect_language: If True, automatically detect language from voice input (default: False)
         """
         self.language = language.lower()
@@ -35,7 +37,7 @@ class AIAgent:
         self.tts = TTSModule(language=self.language)
         
         print("Loading LLM module...")
-        self.llm = LLMModule(model_name=llm_model, use_cpu=True)
+        self.llm = LLMModule(model_name=llm_model)
         
         print("Initializing voice recorder...")
         self.recorder = VoiceRecorder()
@@ -43,6 +45,10 @@ class AIAgent:
         # Create temp directory for audio files
         self.temp_dir = "temp_audio"
         os.makedirs(self.temp_dir, exist_ok=True)
+        
+        # Create output directory for text files
+        self.output_dir = "output_text"
+        os.makedirs(self.output_dir, exist_ok=True)
         
         # System prompts for intelligent responses
         self.system_prompts = {
@@ -75,6 +81,7 @@ class AIAgent:
                 print(f"Using provided audio file: {audio_path}")
             
             # Step 2: Speech-to-Text (with automatic language detection if enabled)
+            # Note: Noise reduction is already applied during recording
             print("Converting speech to text...")
             transcription = self.stt.transcribe(input_audio_path)
             print(f"Transcribed: {transcription}")
@@ -104,13 +111,46 @@ class AIAgent:
             print(f"LLM Response: {response}")
             
             # Step 4: Text-to-Speech and Play
-            print("Converting response to speech and playing...")
-            self.tts.speak(response)
+            print("Converting to speech and playing...")
+            
+            # Speak the input transcription first
+            print("Speaking input transcription...")
+            if self.language == 'hindi':
+                input_prefix = "आपने कहा: "
+            elif self.language == 'telugu':
+                input_prefix = "మీరు చెప్పారు: "
+            elif self.language == 'urdu':
+                input_prefix = "آپ نے کہا: "
+            else:  # english
+                input_prefix = "You said: "
+            
+            self.tts.speak(input_prefix + transcription)
+            
+            # Add a small pause
+            import time
+            time.sleep(0.5)
+            
+            # Then speak the AI response
+            print("Speaking AI response...")
+            if self.language == 'hindi':
+                response_prefix = "AI ने उत्तर दिया: "
+            elif self.language == 'telugu':
+                response_prefix = "AI సమాధానం: "
+            elif self.language == 'urdu':
+                response_prefix = "AI کا جواب: "
+            else:  # english
+                response_prefix = "AI replied: "
+            
+            self.tts.speak(response_prefix + response)
+            
+            # Step 5: Save transcription and response to text file
+            text_file_path = self._save_to_text_file(input_audio_path, transcription, response)
             
             return {
                 'transcription': transcription,
                 'response': response,
-                'input_audio_path': input_audio_path
+                'input_audio_path': input_audio_path,
+                'text_file_path': text_file_path
             }
         
         except Exception as e:
@@ -121,6 +161,51 @@ class AIAgent:
                 'transcription': '',
                 'response': ''
             }
+    
+    def _save_to_text_file(self, audio_path, transcription, response):
+        """
+        Save transcription and response to a text file named after the audio file
+        
+        Args:
+            audio_path: Path to the audio file
+            transcription: Transcribed text
+            response: AI response text
+        
+        Returns:
+            Path to the saved text file
+        """
+        try:
+            # Get base name of audio file (without extension)
+            audio_basename = os.path.splitext(os.path.basename(audio_path))[0]
+            
+            # If it's a recorded file (input.wav), use timestamp
+            if audio_basename == "input":
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                text_filename = f"recording_{timestamp}.txt"
+            else:
+                text_filename = f"{audio_basename}.txt"
+            
+            # Create full path for text file
+            text_file_path = os.path.join(self.output_dir, text_filename)
+            
+            # Prepare content
+            content = f"Audio File: {os.path.basename(audio_path)}\n"
+            content += f"Language: {self.language.upper()}\n"
+            content += f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            content += f"{'='*60}\n\n"
+            content += f"TRANSCRIPTION:\n{'-'*60}\n{transcription}\n\n"
+            content += f"AI RESPONSE:\n{'-'*60}\n{response}\n"
+            
+            # Write to file
+            with open(text_file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            print(f"\n[SUCCESS] Text saved to: {text_file_path}")
+            return text_file_path
+            
+        except Exception as e:
+            print(f"[WARNING] Failed to save text file: {e}")
+            return None
     
     def set_language(self, language):
         """
@@ -263,6 +348,8 @@ class AIAgent:
                     print(f"\n[SUCCESS]")
                     print(f"You said: {result['transcription']}")
                     print(f"AI replied: {result['response']}")
+                    if 'text_file_path' in result and result['text_file_path']:
+                        print(f"Text saved to: {result['text_file_path']}")
             
             except KeyboardInterrupt:
                 print("\n\nInterrupted by user. Goodbye!")
@@ -281,31 +368,15 @@ class AIAgent:
 
 
 if __name__ == "__main__":
-    # Initialize agent
-    import ollama
-    try:
-        models = ollama.list()
-        model_names = []
-        if isinstance(models, dict) and 'models' in models:
-            model_names = [model.get('name', '') for model in models['models']]
-        elif isinstance(models, list):
-            model_names = [model.get('name', '') for model in models]
-        
-        # Prefer phi3:mini, then tinyllama, then phi3
-        if any('phi3:mini' in name for name in model_names):
-            default_model = 'phi3:mini'
-        elif any('tinyllama' in name for name in model_names):
-            default_model = 'tinyllama'
-        elif any('phi3' in name for name in model_names):
-            default_model = 'phi3'
-        else:
-            default_model = 'phi3:mini'
-    except:
-        default_model = 'phi3:mini'
+    # Use Ollama by default (fast, no large downloads!)
+    print("Using Ollama LLM (fast setup, no large downloads)")
+    print("Model: phi3")
+    print("Make sure Ollama is running: ollama serve")
+    print("If model not found, run: ollama pull phi3")
+    print()
     
-    print(f"Using model: {default_model}")
     # Start with manual language selection (auto-detect disabled by default)
-    agent = AIAgent(language='hindi', llm_model=default_model, auto_detect_language=False)
+    agent = AIAgent(language='hindi', auto_detect_language=False)
     
     # Run in interactive mode
     agent.interactive_mode()

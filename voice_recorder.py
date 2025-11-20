@@ -1,9 +1,10 @@
 """
-Voice recording module for capturing audio input
+Voice recording module for capturing audio input with RNNoise/WebRTC noise reduction
 """
 import pyaudio
 import wave
 import os
+from noise_reduction import NoiseReducer
 
 
 class VoiceRecorder:
@@ -22,6 +23,9 @@ class VoiceRecorder:
         self.chunk = chunk
         self.format = format
         self.audio = pyaudio.PyAudio()
+        
+        # Initialize noise reducer (RNNoise/WebRTC)
+        self.noise_reducer = NoiseReducer()
     
     def record(self, duration=5, output_path="input.wav"):
         """
@@ -65,6 +69,9 @@ class VoiceRecorder:
         wf.setframerate(self.sample_rate)
         wf.writeframes(b''.join(frames))
         wf.close()
+        
+        # Apply noise reduction using RNNoise/WebRTC
+        output_path = self.noise_reducer.reduce_noise(output_path)
         
         return output_path
     
@@ -124,7 +131,11 @@ class VoiceRecorder:
         wf.writeframes(b''.join(frames))
         wf.close()
         
+        # Apply noise reduction using RNNoise/WebRTC
+        output_path = self.noise_reducer.reduce_noise(output_path)
+        
         return output_path
+    
     
     def cleanup(self):
         """Clean up audio resources"""

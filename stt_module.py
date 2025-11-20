@@ -1,7 +1,7 @@
 """
-Speech-to-Text module with Whisper and Wav2Vec2 support
+Speech-to-Text module with faster-whisper and Wav2Vec2 support
 Supports Hindi, English, Urdu, and Telugu
-Uses Whisper for better accuracy after language detection
+Uses faster-whisper for better accuracy and speed (much faster than standard Whisper!)
 100% OFFLINE - No tokens required
 """
 import torch
@@ -40,78 +40,47 @@ class STTModule:
             'telugu': 'te'
         }
         
-        # Initialize Whisper if requested (100% OFFLINE after download)
+        # Initialize faster-whisper (100% OFFLINE after download, much faster!)
         self.whisper_model = None
-        if self.use_whisper:
-            try:
-                import whisper
-                # Load base Whisper model (works 100% offline after initial download)
-                print("Loading Whisper model (OFFLINE)...")
-                self.whisper_model = whisper.load_model("base", download_root=None)
-                print("Whisper model loaded successfully! (OFFLINE)")
-            except ImportError:
-                print("Warning: Whisper not installed. Install with: pip install openai-whisper")
-                print("Falling back to Wav2Vec2 models...")
-                self.use_whisper = False
-            except Exception as e:
-                print(f"Warning: Could not load Whisper: {e}")
-                print("Falling back to Wav2Vec2 models...")
-                self.use_whisper = False
-        
-        # Wav2Vec2 models as fallback (using only public models - no token required)
-        if not self.use_whisper:
-            self._init_wav2vec2_models()
-        else:
-            # Don't load Wav2Vec2 if Whisper is available
-            self.processor = None
-            self.model = None
-    
-    def _init_wav2vec2_models(self):
-        """Initialize Wav2Vec2 models - using only public models (no token required)"""
-        from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
-        
-        # Use only public models - no authentication required
-        # facebook/wav2vec2-base-960h is public and works for all languages
-        self.model_name = 'facebook/wav2vec2-base-960h'
-        
-        # Load model for current language
-        if not self.auto_detect:
-            self._load_wav2vec2_model()
-    
-    def _load_wav2vec2_model(self):
-        """Load Wav2Vec2 model - public model, no token required"""
-        from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+        self.whisper_device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.whisper_compute_type = "float16" if torch.cuda.is_available() else "int8"
         
         try:
-            # Try offline first (local_files_only=True)
-            try:
-                self.processor = Wav2Vec2Processor.from_pretrained(
-                    self.model_name, local_files_only=True
-                )
-                self.model = Wav2Vec2ForCTC.from_pretrained(
-                    self.model_name, local_files_only=True
-                )
-                print(f"Loaded {self.model_name} from cache (OFFLINE)")
-            except:
-                # Only download if not in cache (first time only)
-                print(f"Model not in cache. Downloading {self.model_name} (requires internet - one time only)...")
-                self.processor = Wav2Vec2Processor.from_pretrained(
-                    self.model_name, local_files_only=False
-                )
-                self.model = Wav2Vec2ForCTC.from_pretrained(
-                    self.model_name, local_files_only=False
-                )
-                print(f"Model downloaded. Future runs will be OFFLINE.")
-            
-            self.model.to(self.device)
-            self.model.eval()
+            from faster_whisper import WhisperModel
+            model_size = "large-v3"  # Best accuracy
+            print(f"Loading faster-whisper {model_size} model (OFFLINE, best accuracy)...")
+            self.whisper_model = WhisperModel(
+                model_size,
+                device=self.whisper_device,
+                compute_type=self.whisper_compute_type,
+                download_root=None
+            )
+            print(f"faster-whisper {model_size} model loaded successfully! (OFFLINE, {self.whisper_device.upper()})")
+        except ImportError:
+            raise ImportError("faster-whisper not installed. Install with: pip install faster-whisper")
         except Exception as e:
-            raise RuntimeError(f"Failed to load STT model: {e}")
+            raise RuntimeError(f"Could not load faster-whisper: {e}")
     
-    def preprocess_audio(self, audio_path, target_sr=16000):
-        """Preprocess audio file for STT"""
+    def preprocess_audio(self, audio_path, target_sr=16000, reduce_noise=True):
+        """
+        Preprocess audio file for STT with optional noise reduction (RNNoise/WebRTC)
+        
+        Args:
+            audio_path: Path to audio file
+            target_sr: Target sample rate (default: 16000)
+            reduce_noise: Apply noise reduction (default: True)
+        
+        Returns:
+            Preprocessed audio array
+        """
+        # Note: Noise reduction is already applied during recording in voice_recorder.py
+        # This function just loads and normalizes the audio
         audio, sr = librosa.load(audio_path, sr=target_sr)
-        audio = audio / np.max(np.abs(audio))
+        
+        # Normalize audio
+        if len(audio) > 0 and np.max(np.abs(audio)) > 0:
+            audio = audio / np.max(np.abs(audio))
+        
         return audio
     
     def transcribe(self, audio_path=None, audio_array=None):
@@ -133,64 +102,31 @@ class STTModule:
                 print(f"Language detected: {detected_language.upper()}")
                 self.language = detected_language
         
-        # Use Whisper if available
-        if self.use_whisper and self.whisper_model:
-            return self._transcribe_whisper(audio_path, detected_language)
-        else:
-            # Use Wav2Vec2
-            return self._transcribe_wav2vec2(audio_path, audio_array)
+        return self._transcribe_whisper(audio_path, detected_language)
     
     def _transcribe_whisper(self, audio_path, language):
-        """Transcribe using Whisper"""
+        """Transcribe using faster-whisper (much faster than standard Whisper!)"""
         try:
-            lang_code = self.whisper_lang_map.get(language, 'en')
-            result = self.whisper_model.transcribe(
+            lang_code = self.whisper_lang_map.get(language, None)  # None = auto-detect
+            # faster-whisper API is different - returns segments generator
+            segments, info = self.whisper_model.transcribe(
                 audio_path,
                 language=lang_code,
-                task="transcribe"
+                task="transcribe",
+                beam_size=5,  # Balance between speed and accuracy
+                vad_filter=True,  # Voice Activity Detection for better accuracy
             )
-            return result["text"].strip()
+            
+            # Combine all segments into full text
+            full_text = " ".join([segment.text for segment in segments])
+            return full_text.strip()
         except Exception as e:
-            print(f"Whisper transcription error: {e}, trying Wav2Vec2...")
-            # Fallback to Wav2Vec2
-            if not hasattr(self, 'model') or self.model is None:
-                self._init_wav2vec2_models()
-                self._load_wav2vec2_model()
-            return self._transcribe_wav2vec2(audio_path, None)
-    
-    def _transcribe_wav2vec2(self, audio_path, audio_array):
-        """Transcribe using Wav2Vec2"""
-        from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
-        
-        # Load model if not loaded
-        if not hasattr(self, 'model') or self.model is None:
-            self._load_wav2vec2_model()
-        
-        if audio_array is None:
-            if audio_path is None:
-                raise ValueError("Either audio_path or audio_array must be provided")
-            audio_array = self.preprocess_audio(audio_path)
-        
-        # Process audio
-        inputs = self.processor(audio_array, sampling_rate=16000, return_tensors="pt")
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        
-        # Get predictions
-        with torch.no_grad():
-            logits = self.model(**inputs).logits
-        
-        # Decode
-        predicted_ids = torch.argmax(logits, dim=-1)
-        transcription = self.processor.decode(predicted_ids[0])
-        
-        return transcription
+            raise RuntimeError(f"faster-whisper transcription error: {e}")
     
     def set_language(self, language):
         """Change the language for STT"""
         if language.lower() != self.language:
             self.language = language.lower()
-            if not self.use_whisper:
-                self._load_wav2vec2_model()
 
 
 if __name__ == "__main__":

@@ -28,9 +28,10 @@ class TTSModule:
         self.tts_method = None
         self.current_voice = None
         self.piper_available = False
+        self.piper_exe_path = None
         self.piper_model_path = None
         
-        # Method 1: Try Piper TTS (neural TTS - completely offline, best for Hindi)
+        # Method 1: Try Piper TTS (neural TTS - completely offline, best for Hindi and Telugu)
         self._init_piper()
         
         # Method 2: Try pyttsx3 (system TTS - completely offline)
@@ -44,8 +45,8 @@ class TTSModule:
             self._select_voice_for_language()
             
             self.pyttsx3_available = True
-            # Only set as primary if Piper is not available or not for Hindi
-            if not self.piper_available or self.language != 'hindi':
+            # Only set as primary if Piper is not available
+            if not self.piper_available:
                 self.tts_method = 'pyttsx3'
             if self.current_voice:
                 print(f"Using pyttsx3 (OFFLINE) with voice: {self.current_voice}")
@@ -68,35 +69,94 @@ class TTSModule:
             raise RuntimeError("No offline TTS method available. Install: pip install pyttsx3")
     
     def _init_piper(self):
-        """Initialize Piper TTS (offline neural TTS - best for Hindi)"""
-        # Only use Piper for Hindi (it's optimized for Hindi)
-        # For other languages, use pyttsx3/PowerShell which work better
-        if self.language != 'hindi':
-            self.piper_available = False
-            return
+        """Initialize Piper TTS (offline neural TTS - best for Hindi and Telugu)"""
+        # Check for local piper.exe in piper folder
+        piper_dir = os.path.join(os.getcwd(), 'piper')
+        piper_exe = os.path.join(piper_dir, 'piper.exe')
         
-        # Check if piper command is available
-        try:
-            result = subprocess.run(['piper', '--version'], capture_output=True, timeout=2, text=True)
-            if result.returncode == 0:
-                self.piper_available = True
-                # Don't set as primary method yet - will be used only if model exists
-                
-                # Piper model for Hindi
-                self.piper_model = 'hi_IN/arya/medium'
-                print(f"Piper TTS available for Hindi")
-                print(f"Model: {self.piper_model}")
-                print("Note: Download Hindi model with: piper download --language hi_IN --output-dir piper_models")
+        # Check if local piper.exe exists
+        if os.path.exists(piper_exe):
+            self.piper_exe_path = piper_exe
+            print(f"Found local Piper TTS at: {piper_exe}")
+        else:
+            # Try system-wide piper
+            try:
+                result = subprocess.run(['piper', '--version'], capture_output=True, timeout=2, text=True)
+                if result.returncode == 0:
+                    self.piper_exe_path = 'piper'
+                    print("Found system-wide Piper TTS")
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                self.piper_available = False
                 return
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            # Piper not installed - that's okay, will use fallback
-            pass
-        except Exception as e:
-            # Piper error - that's okay, will use fallback
-            pass
+            except Exception as e:
+                self.piper_available = False
+                return
         
-        # Piper not available - will use pyttsx3/PowerShell instead
-        self.piper_available = False
+        # Find model for current language
+        model_found = False
+        
+        if self.language == 'telugu':
+            # Check for Telugu model
+            telugu_model = os.path.join(piper_dir, 'te_IN-maya-medium.onnx')
+            telugu_json = os.path.join(piper_dir, 'te_IN-maya-medium.onnx.json')
+            
+            if os.path.exists(telugu_model) and os.path.exists(telugu_json):
+                self.piper_model_path = telugu_model
+                self.piper_available = True
+                model_found = True
+                print(f"[SUCCESS] Found Telugu Piper model: te_IN-maya-medium")
+            else:
+                print(f"[WARNING] Telugu model not found at: {telugu_model}")
+        
+        elif self.language == 'hindi':
+            # Check for Hindi model in piper folder - search for any hi_IN model
+            hindi_models = [
+                os.path.join(piper_dir, 'hi_IN-arya-medium.onnx'),
+                os.path.join(piper_dir, 'hi_IN-arya-high.onnx'),
+                os.path.join(piper_dir, 'hi_IN-arya-low.onnx'),
+                os.path.join(piper_dir, 'hi_IN-kalpana-medium.onnx'),
+                os.path.join(piper_dir, 'hi_IN-kalpana-high.onnx'),
+                os.path.join(piper_dir, 'hi_IN-kalpana-low.onnx'),
+                os.path.join(piper_dir, 'hi_IN-madhur-medium.onnx'),
+                os.path.join(piper_dir, 'hi_IN-madhur-high.onnx'),
+            ]
+            
+            # Also search for any file starting with hi_IN
+            try:
+                for file in os.listdir(piper_dir):
+                    if file.startswith('hi_IN') and file.endswith('.onnx'):
+                        model_path = os.path.join(piper_dir, file)
+                        json_path = model_path + '.json'
+                        if os.path.exists(json_path):
+                            hindi_models.insert(0, model_path)  # Add to beginning of list
+            except:
+                pass
+            
+            for model_path in hindi_models:
+                json_path = model_path + '.json'
+                if os.path.exists(model_path) and os.path.exists(json_path):
+                    self.piper_model_path = model_path
+                    self.piper_available = True
+                    model_found = True
+                    model_name = os.path.basename(model_path).replace('.onnx', '')
+                    print(f"[SUCCESS] Found Hindi Piper model: {model_name}")
+                    break
+            
+            if not model_found:
+                print(f"[WARNING] Hindi Piper model not found in piper folder")
+                print(f"Expected files: hi_IN-*.onnx and hi_IN-*.onnx.json")
+                print(f"\nTo download Hindi model:")
+                print(f"1. Visit: https://huggingface.co/rhasspy/piper-voices/tree/main/hi_IN")
+                print(f"2. Download: hi_IN-arya-medium.onnx and hi_IN-arya-medium.onnx.json")
+                print(f"3. Save them to the 'piper' folder")
+                print(f"\nOr use piper command:")
+                print(f"  piper download --language hi_IN --output-dir piper")
+        
+        if model_found:
+            self.tts_method = 'piper'
+            print(f"[TTS] Using Piper TTS for {self.language.upper()}")
+        else:
+            self.piper_available = False
     
     def _select_voice_for_language(self):
         """Select the best voice for the current language"""
@@ -171,18 +231,15 @@ class TTSModule:
         # Clean text
         text = text.strip()
         
-        # Try methods in order
-        # For Hindi: Try Piper first, then fallback to pyttsx3/PowerShell
-        # For other languages: Use pyttsx3/PowerShell (they work better)
-        if self.language == 'hindi' and self.piper_available:
-            # Try Piper for Hindi, but fallback if it fails
+        # Try Piper first if available (best quality for Hindi and Telugu)
+        if self.piper_available and self.piper_model_path:
             try:
                 self._speak_piper(text)
                 return
             except Exception as e:
                 print(f"[TTS] Piper failed: {e}, using fallback...")
         
-        # Use pyttsx3 or PowerShell for all languages (including Hindi fallback)
+        # Use pyttsx3 or PowerShell for fallback
         if self.pyttsx3_available:
             self._speak_pyttsx3(text)
         elif self.powershell_available:
@@ -191,51 +248,67 @@ class TTSModule:
             print(f"[WARNING] Could not speak text. No offline TTS method available.")
     
     def _speak_piper(self, text):
-        """Speak using Piper TTS (offline neural TTS - best quality for Hindi)"""
+        """Speak using Piper TTS (offline neural TTS - best quality for Hindi and Telugu)"""
         try:
             # Create temporary WAV file
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
                 wav_path = tmp_file.name
             
-            # Find model file
-            model_paths = [
-                os.path.join('piper_models', self.piper_model, 'model.onnx'),
-                os.path.join(os.path.expanduser('~'), '.local', 'share', 'piper', 'voices', self.piper_model, 'model.onnx'),
-                os.path.join(os.path.expanduser('~'), 'piper', 'voices', self.piper_model, 'model.onnx'),
-            ]
+            # Use local piper.exe with model
+            cmd = [self.piper_exe_path, '--model', self.piper_model_path, '--output_file', wav_path]
             
-            model_file = None
-            for path in model_paths:
-                if os.path.exists(path):
-                    model_file = path
-                    break
-            
-            if not model_file:
-                # Try using model name directly (piper will download if needed)
-                model_file = self.piper_model
-            
-            # Use piper command to generate speech
-            cmd = ['piper', '--model', model_file, '--output_file', wav_path]
             process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                cwd=os.path.dirname(self.piper_exe_path) if self.piper_exe_path != 'piper' else None
             )
             stdout, stderr = process.communicate(input=text)
             
             if process.returncode == 0 and os.path.exists(wav_path):
-                # Play the audio file using pydub (cross-platform)
+                # Try multiple playback methods
+                played = False
+                
+                # Method 1: Try pydub playback
                 try:
                     from pydub import AudioSegment
                     from pydub.playback import play
                     audio = AudioSegment.from_wav(wav_path)
                     play(audio)
+                    played = True
                 except ImportError:
-                    # Fallback to system player
+                    pass
+                except Exception as e:
+                    print(f"[DEBUG] pydub playback failed: {e}")
+                
+                # Method 2: Try winsound (Windows built-in)
+                if not played and sys.platform == 'win32':
+                    try:
+                        import winsound
+                        winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_NOWAIT)
+                        played = True
+                        import time
+                        time.sleep(2)  # Wait for audio to play
+                    except Exception as e:
+                        print(f"[DEBUG] winsound failed: {e}")
+                
+                # Method 3: Try system command
+                if not played:
                     if sys.platform == 'win32':
-                        os.system(f'start "" "{wav_path}"')
+                        # Use PowerShell to play audio
+                        ps_cmd = f'Add-Type -AssemblyName presentationCore; $mediaPlayer = New-Object system.windows.media.mediaplayer; $mediaPlayer.open([uri]"{os.path.abspath(wav_path).replace(chr(92), "/")}"); $mediaPlayer.Play(); Start-Sleep -Seconds 5'
+                        try:
+                            subprocess.run(['powershell', '-Command', ps_cmd], timeout=10, check=False)
+                            played = True
+                        except:
+                            # Last resort: open with default player
+                            os.system(f'start "" "{wav_path}"')
+                            import time
+                            time.sleep(2)
                     elif sys.platform == 'darwin':
                         os.system(f'afplay "{wav_path}"')
                     else:
@@ -243,12 +316,16 @@ class TTSModule:
                 
                 # Clean up
                 import time
-                time.sleep(0.5)
+                time.sleep(1)
                 try:
                     os.remove(wav_path)
                 except:
                     pass
-                print("[TTS] Speech completed (Piper)")
+                
+                if played:
+                    print(f"[TTS] Speech completed (Piper - {self.language.upper()})")
+                else:
+                    print(f"[TTS] Audio file generated but playback may have failed")
                 return
             else:
                 raise Exception(f"Piper failed: {stderr}")
@@ -291,13 +368,55 @@ class TTSModule:
             else:
                 print(f"[TTS] Using default voice")
             
-            # Ensure volume is set
+            # Ensure volume is set (max volume)
             self.engine.setProperty('volume', 1.0)
             self.engine.setProperty('rate', 150)
             
-            # Speak the text
-            self.engine.say(text)
-            self.engine.runAndWait()
+            # Try to save to file first, then play (more reliable)
+            try:
+                temp_wav = os.path.join(tempfile.gettempdir(), 'tts_output.wav')
+                # Ensure text is properly encoded for pyttsx3
+                try:
+                    # Try to save with UTF-8 encoding
+                    self.engine.save_to_file(text, temp_wav)
+                except UnicodeEncodeError:
+                    # Fallback: encode to ASCII with errors='ignore' for compatibility
+                    text_ascii = text.encode('ascii', errors='ignore').decode('ascii')
+                    self.engine.save_to_file(text_ascii, temp_wav)
+                self.engine.runAndWait()
+                
+                # Wait for file to be created
+                import time
+                time.sleep(0.5)
+                
+                if os.path.exists(temp_wav):
+                    # Play using winsound (Windows) or system command
+                    if sys.platform == 'win32':
+                        try:
+                            import winsound
+                            winsound.PlaySound(temp_wav, winsound.SND_FILENAME)
+                        except:
+                            # Fallback to PowerShell
+                            ps_cmd = f'Add-Type -AssemblyName presentationCore; $mediaPlayer = New-Object system.windows.media.mediaplayer; $mediaPlayer.open([uri]"{os.path.abspath(temp_wav).replace(chr(92), "/")}"); $mediaPlayer.Play(); Start-Sleep -Seconds 5'
+                            subprocess.run(['powershell', '-Command', ps_cmd], timeout=10, check=False)
+                    else:
+                        if sys.platform == 'darwin':
+                            os.system(f'afplay "{temp_wav}"')
+                        else:
+                            os.system(f'aplay "{temp_wav}" 2>/dev/null || paplay "{temp_wav}" 2>/dev/null')
+                    
+                    # Clean up
+                    time.sleep(0.5)
+                    try:
+                        os.remove(temp_wav)
+                    except:
+                        pass
+            except Exception as e:
+                print(f"[DEBUG] File-based playback failed: {e}, trying direct speak...")
+                # Fallback to direct speak
+                self.engine.say(text)
+                self.engine.runAndWait()
+            
             print("[TTS] Speech completed")
         except Exception as e:
             print(f"[ERROR] pyttsx3 error: {e}")
@@ -393,6 +512,25 @@ $speak.Speak("{escaped_text}")
     def synthesize(self, text, output_path="output.wav"):
         """Synthesize speech and save to file (offline)"""
         try:
+            # If using Piper, save directly
+            if self.piper_available and self.piper_model_path:
+                try:
+                    cmd = [self.piper_exe_path, '--model', self.piper_model_path, '--output_file', output_path]
+                    process = subprocess.Popen(
+                        cmd,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        cwd=os.path.dirname(self.piper_exe_path) if self.piper_exe_path != 'piper' else None
+                    )
+                    process.communicate(input=text)
+                    if process.returncode == 0 and os.path.exists(output_path):
+                        return output_path
+                except Exception as e:
+                    print(f"Piper synthesis error: {e}, falling back...")
+            
+            # Fallback to pyttsx3
             if self.pyttsx3_available:
                 output_dir = os.path.dirname(output_path)
                 if output_dir and not os.path.exists(output_dir):
@@ -419,8 +557,8 @@ $speak.Speak("{escaped_text}")
             self.language = language.lower()
             self.current_voice = None
             
-            # Re-initialize Piper if switching to/from Hindi
-            if self.language == 'hindi':
+            # Re-initialize Piper for Hindi and Telugu
+            if self.language in ['hindi', 'telugu']:
                 self._init_piper()
             else:
                 self.piper_available = False
@@ -470,11 +608,21 @@ foreach ($voice in $voices) {
                     print(result.stdout)
             except Exception as e:
                 print(f"Error listing PowerShell voices: {e}")
+        
+        # Show Piper models if available
+        if self.piper_available:
+            print(f"\nPiper TTS: Available")
+            print(f"  Model: {os.path.basename(self.piper_model_path)}")
+            print(f"  Language: {self.language.upper()}")
         print("=" * 30)
 
 
 if __name__ == "__main__":
     # Test the TTS module
-    tts = TTSModule(language='hindi')
-    print("TTS module initialized successfully!")
-    tts.speak("Hello, this is a test of the offline text to speech module.")
+    print("Testing Hindi TTS...")
+    tts_hindi = TTSModule(language='hindi')
+    tts_hindi.speak("नमस्ते, यह हिंदी टेक्स्ट टू स्पीच का परीक्षण है।")
+    
+    print("\nTesting Telugu TTS...")
+    tts_telugu = TTSModule(language='telugu')
+    tts_telugu.speak("నమస్కారం, ఇది తెలుగు టెక్స్ట్ టు స్పీచ్ పరీక్ష.")
