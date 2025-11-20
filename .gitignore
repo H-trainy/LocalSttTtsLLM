@@ -1,12 +1,11 @@
+# ============================================
 # Python
+# ============================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
 build/
 develop-eggs/
 dist/
@@ -22,41 +21,142 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# Audio files
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# ============================================
+# Project-specific: Audio files
+# ============================================
+# User audio files
+audio/
 *.wav
 *.mp3
+*.m4a
 *.flac
 *.ogg
-temp_audio/
+*.wma
+*.aac
 
-# Model cache (Hugging Face)
-.cache/
+# Temporary audio files
+temp_audio/
+*.tmp.wav
+
+# ============================================
+# Project-specific: Generated output
+# ============================================
+# Generated text files (transcriptions and responses)
+output_text/
+*.txt
+
+# ============================================
+# Project-specific: Models and binaries
+# ============================================
+# Large model files
+Models/
 models/
 *.bin
 *.safetensors
+*.onnx
+*.onnx.json
+*.gguf
+*.ggml
 
-# IDE
+# Model cache directories
+.cache/
+.huggingface/
+transformers_cache/
+whisper_cache/
+
+# Piper TTS binaries (large files - ignore entire directory)
+piper/
+
+# RNNoise DLL (if placed in root)
+rnnoise*.dll
+
+# ============================================
+# IDE and Editor files
+# ============================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
 
-# OS
-.DS_Store
+# ============================================
+# OS-specific files
+# ============================================
+# Windows
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
 
-# Logs
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================
+# Logs and temporary files
+# ============================================
 *.log
-
-# Temporary files
 *.tmp
 *.temp
+*.bak
+*.swp
+*.swo
 
-# Token files (security)
+# ============================================
+# Security and secrets
+# ============================================
+.env
+.env.local
+.env.*.local
+*.token
+*.key
+*.pem
 setup_token.ps1
 setup_token.bat
-.env
-*.token
+secrets.json
+config.json
+
+# ============================================
+# Jupyter Notebook
+# ============================================
+.ipynb_checkpoints
+*.ipynb
+
+# ============================================
+# Testing
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# ============================================
+# Documentation builds
+# ============================================
+docs/_build/
+site/
 
