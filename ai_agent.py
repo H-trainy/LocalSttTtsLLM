@@ -11,15 +11,15 @@ from voice_recorder import VoiceRecorder
 
 
 class AIAgent:
-    def __init__(self, language='hindi', llm_model='phi3', auto_detect_language=False):
+    def __init__(self, language='hindi', llm_model='phi3', auto_detect_language=True):
         """
         Initialize AI Agent
         
         Args:
-            language: 'hindi', 'english', 'urdu', or 'telugu' (default language)
+            language: 'hindi', 'english', 'urdu', or 'telugu' (default language, used as fallback)
             llm_model: Ollama model name (default: 'phi3' - fast, no large downloads)
                        Other options: 'phi3:mini', 'llama3.1:8b', 'tinyllama'
-            auto_detect_language: If True, automatically detect language from voice input (default: False)
+            auto_detect_language: If True, automatically detect language from voice input (default: True)
         """
         self.language = language.lower()
         self.auto_detect_language = auto_detect_language
@@ -52,10 +52,10 @@ class AIAgent:
         
         # System prompts for intelligent responses
         self.system_prompts = {
-            'hindi': 'आप एक बुद्धिमान AI सहायक हैं। उपयोगकर्ता के प्रश्नों का उचित उत्तर दें।',
-            'english': 'You are an intelligent AI assistant. Provide helpful and appropriate responses to user questions.',
-            'urdu': 'آپ ایک ذہین AI معاون ہیں۔ صارف کے سوالات کا مناسب جواب دیں۔',
-            'telugu': 'మీరు ఒక తెలివైన AI సహాయకుడు. వినియోగదారు ప్రశ్నలకు సముచితమైన సమాధానాలు ఇవ్వండి.'
+            'hindi': 'आप एक बुद्धिमान और सहायक AI सहायक हैं। उपयोगकर्ता के प्रश्नों का स्पष्ट, संक्षिप्त और उपयोगी उत्तर दें। हमेशा सही और प्रासंगिक जानकारी प्रदान करें।',
+            'english': 'You are an intelligent and helpful AI assistant. Provide clear, concise, and useful responses to user questions. Always give accurate and relevant information.',
+            'urdu': 'آپ ایک ذہین اور مددگار AI معاون ہیں۔ صارف کے سوالات کا واضح، مختصر اور مفید جواب دیں۔ ہمیشہ درست اور متعلقہ معلومات فراہم کریں۔',
+            'telugu': 'మీరు ఒక తెలివైన మరియు సహాయక AI సహాయకుడు. వినియోగదారు ప్రశ్నలకు స్పష్టమైన, సంక్షిప్తమైన మరియు ఉపయోగకరమైన సమాధానాలు ఇవ్వండి. ఎల్లప్పుడూ ఖచ్చితమైన మరియు సంబంధిత సమాచారాన్ని అందించండి.'
         }
         
         print("AI Agent initialized successfully!")
@@ -83,6 +83,8 @@ class AIAgent:
             # Step 2: Speech-to-Text (with automatic language detection if enabled)
             # Note: Noise reduction is already applied during recording
             print("Converting speech to text...")
+            
+            # Transcribe (language detection happens inside STT module if enabled)
             transcription = self.stt.transcribe(input_audio_path)
             print(f"Transcribed: {transcription}")
             
@@ -93,7 +95,7 @@ class AIAgent:
                     'response': ''
                 }
             
-            # Update language if auto-detection changed it
+            # Update language if auto-detection changed it (STT module updates its own language)
             if self.auto_detect_language and hasattr(self.stt, 'language') and self.stt.language != self.language:
                 self.language = self.stt.language
                 self.tts.set_language(self.language)
@@ -105,8 +107,8 @@ class AIAgent:
             response = self.llm.generate(
                 prompt=transcription,
                 system_prompt=system_prompt,
-                max_tokens=128,
-                temperature=0.6
+                max_tokens=256,  # Increased from 128 for clearer, complete responses
+                temperature=0.4  # Lower temperature for more focused, coherent responses
             )
             print(f"LLM Response: {response}")
             
@@ -375,8 +377,8 @@ if __name__ == "__main__":
     print("If model not found, run: ollama pull phi3")
     print()
     
-    # Start with manual language selection (auto-detect disabled by default)
-    agent = AIAgent(language='hindi', auto_detect_language=False)
+    # Start with automatic language detection (enabled by default)
+    agent = AIAgent(language='hindi', auto_detect_language=True)
     
     # Run in interactive mode
     agent.interactive_mode()
