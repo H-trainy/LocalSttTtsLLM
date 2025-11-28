@@ -1,135 +1,92 @@
 """
-Speech-to-Text module with faster-whisper and Wav2Vec2 support
-Supports Hindi, English, Urdu, and Telugu
-Uses faster-whisper for better accuracy and speed (much faster than standard Whisper!)
-100% OFFLINE - No tokens required
+Speech-to-Text module using faster-whisper LARGE-V3
+✔ Supports MIXED languages in one audio (Hindi + English + Telugu + Urdu)
+✔ Uses Whisper auto-language detection
+✔ 100% OFFLINE after first download
+✔ Clean, fast, and stable
 """
-import torch
+
 import numpy as np
 import librosa
-import os
-from language_detector import LanguageDetector
+import torch
 
 
 class STTModule:
-    def __init__(self, language='hindi', auto_detect=False, use_whisper=True):
+    def __init__(self, use_whisper=True):
         """
-        Initialize STT module
-        
+        Initialize STT Module (Multilingual Version)
+
         Args:
-            language: 'hindi', 'english', 'urdu', or 'telugu' (used if auto_detect=False)
-            auto_detect: If True, automatically detect language from audio
-            use_whisper: If True, use Whisper model (better accuracy)
+            use_whisper: Always True (Whisper has best multilingual accuracy)
         """
-        self.language = language.lower()
-        self.auto_detect = auto_detect
         self.use_whisper = use_whisper
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        
-        # Initialize language detector if auto_detect is enabled
-        if self.auto_detect:
-            self.language_detector = LanguageDetector()
-        else:
-            self.language_detector = None
-        
-        # Language code mapping for Whisper
-        self.whisper_lang_map = {
-            'hindi': 'hi',
-            'english': 'en',
-            'urdu': 'ur',
-            'telugu': 'te'
-        }
-        
-        # Initialize faster-whisper (100% OFFLINE after download, much faster!)
-        self.whisper_model = None
-        self.whisper_device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.whisper_compute_type = "float16" if torch.cuda.is_available() else "int8"
-        
+
+        # Load faster-whisper LARGE-V3
         try:
             from faster_whisper import WhisperModel
-            model_size = "large-v3"  # Best accuracy
-            print(f"Loading faster-whisper {model_size} model (OFFLINE, best accuracy)...")
-            self.whisper_model = WhisperModel(
-                model_size,
-                device=self.whisper_device,
-                compute_type=self.whisper_compute_type,
-                download_root=None
+            print("Loading faster-whisper large-v3 (best multilingual accuracy)...")
+
+            self.model = WhisperModel(
+                "large-v3",
+                device=self.device,
+                compute_type="float16" if self.device == "cuda" else "int8",
             )
-            print(f"faster-whisper {model_size} model loaded successfully! (OFFLINE, {self.whisper_device.upper()})")
+
+            print(f"Whisper LARGE-V3 loaded successfully on {self.device.upper()}!")
+
         except ImportError:
-            raise ImportError("faster-whisper not installed. Install with: pip install faster-whisper")
+            raise ImportError("Install faster-whisper: pip install faster-whisper")
         except Exception as e:
-            raise RuntimeError(f"Could not load faster-whisper: {e}")
-    
-    def preprocess_audio(self, audio_path, target_sr=16000, reduce_noise=True):
+            raise RuntimeError(f"Failed to load faster-whisper: {e}")
+
+    def preprocess_audio(self, audio_path, target_sr=16000):
         """
-        Preprocess audio file for STT with optional noise reduction (RNNoise/WebRTC)
-        
-        Args:
-            audio_path: Path to audio file
-            target_sr: Target sample rate (default: 16000)
-            reduce_noise: Apply noise reduction (default: True)
-        
-        Returns:
-            Preprocessed audio array
+        Load + normalize audio
+        Speech recording already has noise reduction applied, so only normalization is needed
         """
-        # Note: Noise reduction is already applied during recording in voice_recorder.py
-        # This function just loads and normalizes the audio
         audio, sr = librosa.load(audio_path, sr=target_sr)
-        
-        # Normalize audio
+
+        # Normalize audio volume
         if len(audio) > 0 and np.max(np.abs(audio)) > 0:
             audio = audio / np.max(np.abs(audio))
-        
+
         return audio
-    
-    def transcribe(self, audio_path=None, audio_array=None):
+
+    def transcribe(self, audio_path):
         """
-        Transcribe audio to text
-        
+        Transcribe audio using multilingual Whisper (mixed language capable)
+
         Args:
-            audio_path: Path to audio file (optional if audio_array provided)
-            audio_array: Preprocessed audio array (optional if audio_path provided)
-        
+            audio_path: path to WAV/MP3/M4A file
+
         Returns:
-            Transcribed text
+            full_text: Transcribed text (may contain Hindi + English + Telugu)
         """
-        # Auto-detect language if enabled
-        detected_language = self.language
-        if self.auto_detect and audio_path:
-            detected_language, _ = self.language_detector.detect_language(audio_path)
-            if detected_language != self.language:
-                print(f"Language detected: {detected_language.upper()}")
-                self.language = detected_language
-        
-        return self._transcribe_whisper(audio_path, detected_language)
-    
-    def _transcribe_whisper(self, audio_path, language):
-        """Transcribe using faster-whisper (much faster than standard Whisper!)"""
+
+        print("Transcribing with multi-language Whisper...")
+
         try:
-            lang_code = self.whisper_lang_map.get(language, None)  # None = auto-detect
-            # faster-whisper API is different - returns segments generator
-            segments, info = self.whisper_model.transcribe(
+            # DO NOT set language → Whisper auto-detects (supports mixed speech!)
+            segments, info = self.model.transcribe(
                 audio_path,
-                language=lang_code,
-                task="transcribe",
-                beam_size=5,  # Balance between speed and accuracy
-                vad_filter=True,  # Voice Activity Detection for better accuracy
+                language=None,            # <– enables multi-language detection
+                task="transcribe",        # <– transcription, NOT translation
+                beam_size=5,
+                vad_filter=True,
             )
-            
-            # Combine all segments into full text
-            full_text = " ".join([segment.text for segment in segments])
-            return full_text.strip()
+
+            # Merge all segments into final text
+            full_text = " ".join([seg.text for seg in segments])
+            full_text = full_text.strip()
+
+            if full_text == "":
+                print("[STT] No speech detected.")
+                return ""
+
+            print("[STT] Transcription complete.")
+            return full_text
+
         except Exception as e:
-            raise RuntimeError(f"faster-whisper transcription error: {e}")
-    
-    def set_language(self, language):
-        """Change the language for STT"""
-        if language.lower() != self.language:
-            self.language = language.lower()
+            raise RuntimeError(f"Whisper transcription error: {e}")
 
-
-if __name__ == "__main__":
-    # Test the STT module
-    stt = STTModule(language='hindi', use_whisper=True)
-    print("STT module initialized successfully!")

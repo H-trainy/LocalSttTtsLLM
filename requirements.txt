@@ -1,12 +1,4 @@
-torch>=2.0.0
-transformers>=4.30.0
-soundfile>=0.12.1
-librosa>=0.10.0
-numpy>=1.24.0
-ollama>=0.1.0
-pyaudio>=0.2.13
-pydub>=0.25.1
-pyttsx3>=2.90
-faster-whisper>=1.0.0
-webrtcvad>=2.0.10
-scipy>=1.10.0
+sarvamai>=1.0.0
+python-dotenv>=1.0.0
+openpyxl>=3.1.0
+requests>=2.31.0

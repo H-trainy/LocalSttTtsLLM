@@ -8,6 +8,7 @@ from stt_module import STTModule
 from tts_module import TTSModule
 from llm_module import LLMModule
 from voice_recorder import VoiceRecorder
+from intent_analyzer import IntentAnalyzer
 
 
 class AIAgent:
@@ -31,13 +32,16 @@ class AIAgent:
         
         # Initialize modules
         print("Loading STT module with Whisper...")
-        self.stt = STTModule(language=self.language, auto_detect=auto_detect_language, use_whisper=True)
+        self.stt = STTModule(use_whisper=True)
         
         print("Loading TTS module...")
         self.tts = TTSModule(language=self.language)
         
         print("Loading LLM module...")
         self.llm = LLMModule(model_name=llm_model)
+        
+        print("Loading Intent Analyzer module...")
+        self.intent_analyzer = IntentAnalyzer(llm_model=llm_model)
         
         print("Initializing voice recorder...")
         self.recorder = VoiceRecorder()
@@ -92,6 +96,7 @@ class AIAgent:
                 return {
                     'error': 'No speech detected in audio',
                     'transcription': '',
+                    'analysis': {'summary': '', 'keywords': [], 'intent': ''},
                     'response': ''
                 }
             
@@ -100,6 +105,13 @@ class AIAgent:
                 self.language = self.stt.language
                 self.tts.set_language(self.language)
                 print(f"Language automatically detected and set to: {self.language.upper()}")
+            
+            # Step 2.5: Analyze transcription (Summary, Keywords, Intent)
+            print("Analyzing transcription (Summary, Keywords, Intent)...")
+            analysis = self.intent_analyzer.analyze(transcription, language=self.language)
+            print(f"Summary: {analysis.get('summary', 'N/A')}")
+            print(f"Keywords: {', '.join(analysis.get('keywords', []))}")
+            print(f"Intent: {analysis.get('intent', 'N/A')}")
             
             # Step 3: LLM Processing
             print("Processing with LLM...")
@@ -145,11 +157,12 @@ class AIAgent:
             
             self.tts.speak(response_prefix + response)
             
-            # Step 5: Save transcription and response to text file
-            text_file_path = self._save_to_text_file(input_audio_path, transcription, response)
+            # Step 5: Save transcription, analysis, and response to text file
+            text_file_path = self._save_to_text_file(input_audio_path, transcription, response, analysis)
             
             return {
                 'transcription': transcription,
+                'analysis': analysis,
                 'response': response,
                 'input_audio_path': input_audio_path,
                 'text_file_path': text_file_path
@@ -161,17 +174,19 @@ class AIAgent:
             return {
                 'error': error_msg,
                 'transcription': '',
+                'analysis': {'summary': '', 'keywords': [], 'intent': ''},
                 'response': ''
             }
     
-    def _save_to_text_file(self, audio_path, transcription, response):
+    def _save_to_text_file(self, audio_path, transcription, response, analysis=None):
         """
-        Save transcription and response to a text file named after the audio file
+        Save transcription, analysis, and response to a text file named after the audio file
         
         Args:
             audio_path: Path to the audio file
             transcription: Transcribed text
             response: AI response text
+            analysis: Analysis dictionary with summary, keywords, and intent (optional)
         
         Returns:
             Path to the saved text file
@@ -196,6 +211,19 @@ class AIAgent:
             content += f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             content += f"{'='*60}\n\n"
             content += f"TRANSCRIPTION:\n{'-'*60}\n{transcription}\n\n"
+            
+            # Add analysis section if available
+            if analysis:
+                content += f"ANALYSIS:\n{'-'*60}\n"
+                if analysis.get('summary'):
+                    content += f"SUMMARY: {analysis['summary']}\n"
+                if analysis.get('keywords'):
+                    keywords_str = ', '.join(analysis['keywords'])
+                    content += f"KEYWORDS: {keywords_str}\n"
+                if analysis.get('intent'):
+                    content += f"INTENT: {analysis['intent']}\n"
+                content += "\n"
+            
             content += f"AI RESPONSE:\n{'-'*60}\n{response}\n"
             
             # Write to file
@@ -349,6 +377,15 @@ class AIAgent:
                 else:
                     print(f"\n[SUCCESS]")
                     print(f"You said: {result['transcription']}")
+                    if 'analysis' in result and result['analysis']:
+                        analysis = result['analysis']
+                        print(f"\nAnalysis:")
+                        if analysis.get('summary'):
+                            print(f"  Summary: {analysis['summary']}")
+                        if analysis.get('keywords'):
+                            print(f"  Keywords: {', '.join(analysis['keywords'])}")
+                        if analysis.get('intent'):
+                            print(f"  Intent: {analysis['intent']}")
                     print(f"AI replied: {result['response']}")
                     if 'text_file_path' in result and result['text_file_path']:
                         print(f"Text saved to: {result['text_file_path']}")
